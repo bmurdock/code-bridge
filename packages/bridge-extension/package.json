@@ -1,0 +1,72 @@
+{
+  "name": "code-bridge-extension",
+  "displayName": "Copilot LM Bridge",
+  "description": "Expose VS Code LM API over a local HTTP bridge for Codex CLI.",
+  "version": "0.1.0",
+  "publisher": "code",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "dist/extension.js",
+  "files": [
+    "dist/**/*",
+    "node_modules/zod/**/*",
+    "node_modules/@vscode/l10n/**/*"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "Copilot LM Bridge",
+      "properties": {
+        "lmBridge.port": {
+          "type": "number",
+          "default": 39217,
+          "description": "Port used for the local HTTP bridge."
+        },
+        "lmBridge.authToken": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Optional bearer token required for bridge access."
+        },
+        "lmBridge.autoStart": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically start the bridge server when the extension activates."
+        },
+        "lmBridge.logLevel": {
+          "type": "string",
+          "enum": ["error", "warn", "info", "debug"],
+          "default": "info",
+          "description": "Logging level for bridge diagnostics."
+        },
+        "lmBridge.maxConcurrent": {
+          "type": "number",
+          "default": 4,
+          "description": "Maximum concurrent LM requests handled by the bridge."
+        },
+        "lmBridge.maxRequestBody": {
+          "type": "number",
+          "default": 32768,
+          "description": "Maximum allowed request body size in bytes."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "build": "npm run compile",
+    "lint": "eslint \"src/**/*.ts\"",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.5.4"
+  },
+  "dependencies": {
+    "@vscode/l10n": "^0.0.18",
+    "zod": "^3.23.8"
+  }
+}

@@ -1,0 +1,326 @@
+# Engineering Plan: End-to-End Streaming for Copilot Bridge
+
+## Executive Summary
+
+This plan outlines the implementation of streaming language model responses from VS Code's LM API through the HTTP bridge to MCP sidecar tools. The solution uses Server-Sent Events (SSE) for reliable streaming transport while maintaining backward compatibility and existing security constraints.
+
+## Current State Analysis
+
+**Bridge Extension** (`packages/bridge-extension/src/server.ts:254`):
+- Currently uses `await model.sendRequest()` and returns complete response
+- Has robust auth, concurrency limiting, and error handling
+- Missing streaming capability
+
+**MCP Sidecar** (`packages/copilot-sidecar/src/index.ts:177`):
+- Shows placeholder text "Bridge streaming not yet implemented"
+- Has proper error handling and tool registration
+- Ready for streaming integration
+
+**VS Code LM API**:
+- Supports streaming via `for await (const fragment of chatResponse.text)`
+- Returns async iterable with text fragments
+- Provides metadata in final response object
+
+## Streaming Architecture Design
+
+### Protocol Selection: Server-Sent Events (SSE)
+
+**Rationale:**
+- Structured message format with event types
+- Built-in error handling and connection management  
+- Clear message boundaries
+- Standard HTTP streaming protocol
+
+**Event Schema:**
+```typescript
+interface StreamChunkEvent {
+  event: 'chunk';
+  data: { text: string; index: number };
+}
+
+interface StreamMetadataEvent {
+  event: 'metadata';
+  data: { usage?: any; model?: string };
+}
+
+interface StreamErrorEvent {
+  event: 'error';
+  data: { error: string; statusCode: number };
+}
+
+interface StreamDoneEvent {
+  event: 'done';
+  data: { status: 'completed' | 'cancelled' };
+}
+```
+
+### Data Flow Architecture
+
+1. **VS Code LM API** → Text fragments via async iteration
+2. **Bridge Extension** → SSE events over HTTP 
+3. **MCP Sidecar** → Progress updates via MCP protocol
+4. **Codex CLI** → Real-time output display
+
+### Content Negotiation
+
+- `Accept: text/event-stream` → Streaming response
+- `Accept: application/json` → Traditional response
+- Maintains backward compatibility
+
+## Implementation Plan
+
+### Phase 1: Bridge Extension Streaming Foundation
+**Duration:** 1-2 weeks
+
+**Key Changes to `packages/bridge-extension/src/server.ts`:**
+
+```typescript
+private async handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
+  // Check Accept header for streaming preference
+  const acceptHeader = req.headers['accept'] || '';
+  const wantsStreaming = acceptHeader.includes('text/event-stream');
+  
+  if (wantsStreaming) {
+    await this.handleChatStream(req, res);
+  } else {
+    await this.handleChatNonStream(req, res); // existing logic
+  }
+}
+
+private async handleChatStream(req: http.IncomingMessage, res: http.ServerResponse) {
+  // Set SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  
+  // Parse request and validate (reuse existing logic)
+  const payload = await this.parseAndValidateRequest(req);
+  
+  try {
+    const model = await this.selectModel(payload.model);
+    const messages = createChatMessages(payload);
+    const options = createRequestOptions(payload);
+    
+    // Stream from VS Code LM API
+    const chatResponse = await model.sendRequest(messages, options, controller.token);
+    
+    let index = 0;
+    for await (const fragment of chatResponse.text) {
+      const event = {
+        event: 'chunk',
+        data: { text: fragment, index: index++ }
+      };
+      this.writeSSEEvent(res, event);
+    }
+    
+    // Send metadata and completion
+    this.writeSSEEvent(res, { event: 'metadata', data: { usage: chatResponse.usage } });
+    this.writeSSEEvent(res, { event: 'done', data: { status: 'completed' } });
+    
+  } catch (error) {
+    this.writeSSEEvent(res, { 
+      event: 'error', 
+      data: { error: error.message, statusCode: 500 } 
+    });
+  } finally {
+    res.end();
+  }
+}
+```
+
+**Testing:**
+- Unit tests for SSE event generation
+- Integration tests with mock VS Code LM API
+- Cancellation and error handling tests
+
+### Phase 2: MCP Sidecar Streaming Client
+**Duration:** 1-2 weeks
+
+**Key Changes to `packages/copilot-sidecar/src/index.ts`:**
+
+```typescript
+export class BridgeClient implements CopilotBridgeClient {
+  async chat(payload: ChatPayload, signal?: AbortSignal): Promise<ChatResponse> {
+    // Try streaming first, fallback to non-streaming
+    try {
+      return await this.chatStreaming(payload, signal);
+    } catch (error) {
+      if (this.isStreamingUnsupported(error)) {
+        return await this.chatNonStreaming(payload, signal);
+      }
+      throw error;
+    }
+  }
+  
+  private async chatStreaming(payload: ChatPayload, signal?: AbortSignal): Promise<ChatResponse> {
+    const response = await fetch(new URL('/chat', this.baseUrl), {
+      method: 'POST',
+      headers: this.buildHeaders({ 
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream'
+      }),
+      body: JSON.stringify(payload),
+      signal
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    return await this.parseSSEResponse(response);
+  }
+  
+  private async parseSSEResponse(response: Response): Promise<ChatResponse> {
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('No response body');
+    
+    let fullText = '';
+    let metadata = {};
+    
+    // Parse SSE events
+    for await (const event of this.parseSSEEvents(reader)) {
+      switch (event.event) {
+        case 'chunk':
+          fullText += event.data.text;
+          break;
+        case 'metadata':
+          metadata = event.data;
+          break;
+        case 'error':
+          throw new Error(event.data.error);
+        case 'done':
+          break;
+      }
+    }
+    
+    return {
+      status: 'ok',
+      received: Date.now(),
+      output: fullText,
+      ...metadata
+    };
+  }
+}
+```
+
+**Testing:**
+- SSE parsing unit tests
+- Streaming detection and fallback tests
+- Error propagation tests
+
+### Phase 3: MCP Tool Integration with Progress Reporting
+**Duration:** 1 week
+
+**Enhanced `copilot.chat` tool:**
+
+```typescript
+targetServer.registerTool(
+  'copilot.chat',
+  // ... schema definition
+  async ({ prompt, model }, context) => {
+    const controller = new AbortController();
+    context.signal.addEventListener('abort', () => controller.abort());
+    
+    try {
+      // Use streaming client with progress reporting
+      const response = await copilotBridge.chatWithProgress(
+        { prompt, ...model },
+        controller.signal,
+        (chunk) => {
+          // Emit progress updates for streaming chunks
+          context.reportProgress?.(chunk.text);
+        }
+      );
+      
+      return {
+        content: [{ type: 'text', text: response.output }],
+        structuredContent: response
+      };
+    } catch (error) {
+      return buildErrorResult(error);
+    }
+  }
+);
+```
+
+**Testing:**
+- End-to-end streaming integration tests
+- Progress reporting validation
+- Metadata reconciliation tests
+
+### Phase 4: Advanced Features & Production Readiness
+**Duration:** 1-2 weeks
+
+**Features:**
+- Enhanced error recovery and retry logic
+- Performance monitoring and metrics
+- Load testing and optimization
+- Comprehensive documentation
+- Feature flags for gradual rollout
+
+## Risk Mitigation Strategies
+
+### 1. Memory Management
+**Risk:** Streaming connections causing memory leaks
+**Mitigation:** 
+- Implement connection timeouts
+- Proper stream cleanup in finally blocks
+- Monitor memory usage during load testing
+
+### 2. Performance Impact
+**Risk:** Streaming overhead affecting system performance
+**Mitigation:**
+- A/B testing between streaming and non-streaming
+- Performance benchmarking
+- Resource usage monitoring
+
+### 3. Connection Reliability
+**Risk:** Network issues breaking streaming connections
+**Mitigation:**
+- Graceful fallback to non-streaming
+- Connection retry logic
+- Timeout handling
+
+### 4. Backward Compatibility
+**Risk:** Breaking existing non-streaming clients
+**Mitigation:**
+- Content negotiation via Accept headers
+- Comprehensive regression testing
+- Gradual feature rollout
+
+## Testing Strategy
+
+### Unit Tests
+- SSE event generation and parsing
+- Error handling and normalization
+- Stream lifecycle management
+- Content negotiation logic
+
+### Integration Tests  
+- End-to-end streaming flow
+- Cancellation propagation
+- Error recovery scenarios
+- Performance under load
+
+### Compatibility Tests
+- Existing non-streaming clients
+- Various network conditions
+- Different VS Code LM API responses
+- Concurrent request handling
+
+## Success Metrics
+
+1. **Latency:** First token time < 500ms
+2. **Throughput:** Support existing concurrency limits
+3. **Reliability:** 99.9% successful stream completion
+4. **Compatibility:** Zero regression in non-streaming clients
+5. **Performance:** < 10% overhead vs non-streaming
+
+## Rollout Plan
+
+1. **Internal Testing:** Feature flag enabled for development
+2. **Beta Testing:** Limited user group with monitoring
+3. **Gradual Rollout:** Percentage-based traffic splitting
+4. **Full Deployment:** 100% traffic after validation
+
+This comprehensive plan provides a robust foundation for implementing end-to-end streaming while maintaining system reliability and backward compatibility.

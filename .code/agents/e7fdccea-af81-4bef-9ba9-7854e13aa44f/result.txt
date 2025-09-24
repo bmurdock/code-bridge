@@ -1,0 +1,247 @@
+I'll help develop an engineering plan to add end-to-end streaming for the Copilot bridge project. Let me first examine the key files to understand the current implementation.
+
+Now let me examine the sidecar implementation to understand how it currently handles responses:
+
+Let me also check the chat utilities to understand the current request handling:
+
+Let me also check the package.json to understand the project structure and dependencies:
+
+Now let me check the sidecar's package.json to understand its dependencies:
+
+Let me also check the bridge extension's package.json:
+
+Let me correct the path and try again:
+
+Let me also check the architecture documentation to understand the planned approach:
+
+Now let me check the error handling in the sidecar:
+
+Now I have a good understanding of the current implementation. Let me create a detailed engineering plan for implementing end-to-end streaming.
+
+Let me first design the HTTP streaming transport mechanism:
+
+## Engineering Plan: End-to-End Streaming for Copilot Bridge
+
+### 1. Current Implementation Analysis
+
+Based on my analysis, here are the key findings:
+
+**Bridge Extension (`packages/bridge-extension/src/server.ts`)**:
+- Currently awaits full `vscode.lm.sendRequest` result before returning a single JSON response
+- Has proper auth, concurrency limits, and cancellation handling
+- Missing streaming implementation in the `/chat` handler
+
+**Copilot Sidecar (`packages/copilot-sidecar/src/index.ts`)**:
+- Shows placeholder text "Bridge streaming not yet implemented"
+- Lacks streaming handling for incremental MCP tool outputs
+- Has proper error handling and cancellation propagation
+
+### 2. Streaming Transport Design
+
+For HTTP streaming, I recommend using **chunked transfer encoding** which is well-supported and simpler than SSE for this use case:
+
+#### Bridge Extension Streaming Approach:
+1. Set `Transfer-Encoding: chunked` header
+2. Use `response.write()` to send incremental chunks
+3. Send JSON objects as chunks with a delimiter (e.g., newline)
+4. End with a final chunk indicating completion
+
+Example format:
+```
+{"type": "chunk", "content": "Hello"}
+{"type": "chunk", "content": " World"}
+{"type": "final", "status": "ok", "usage": {...}}
+```
+
+#### Sidecar Streaming Approach:
+1. Process chunks as they arrive
+2. Emit incremental MCP tool outputs
+3. Reconcile final metadata when stream completes
+
+### 3. Bridge Extension Implementation Plan
+
+#### Key Changes Needed in Bridge Extension:
+
+1. **Modify `handleChat` method** to support streaming:
+   - Change from awaiting full response to processing stream
+   - Implement chunked transfer encoding
+   - Handle incremental token output from `vscode.lm`
+
+2. **Update response format**:
+   - Send chunks as they arrive
+   - Include metadata in final chunk
+   - Maintain backward compatibility if possible
+
+3. **Preserve existing functionality**:
+   - Auth checks
+   - Concurrency limits
+   - Request size limits
+   - Cancellation handling
+   - Error handling
+
+Implementation approach:
+```typescript
+// In handleChat method
+res.setHeader('Content-Type', 'application/json');
+res.setHeader('Transfer-Encoding', 'chunked');
+
+try {
+  // ... existing setup code ...
+  
+  const stream = model.sendRequest(messages, options, controller.token);
+  
+  // Process stream as it arrives
+  for await (const chunk of stream) {
+    if (controller.token.isCancellationRequested) {
+      res.write(JSON.stringify({ type: 'error', code: 499, message: 'Client Closed Request' }) + '\n');
+      break;
+    }
+    
+    res.write(JSON.stringify({ type: 'chunk', content: chunk }) + '\n');
+  }
+  
+  // Send final metadata
+  res.end(JSON.stringify({ type: 'final', status: 'ok', usage: stream.usage }) + '\n');
+} catch (error) {
+  // Handle errors appropriately
+}
+```
+
+### 4. Copilot Sidecar Implementation Plan
+
+#### Key Changes Needed in Copilot Sidecar:
+
+1. **Modify `chat` method in `BridgeClient`**:
+   - Process chunked HTTP responses incrementally
+   - Parse JSON chunks as they arrive
+   - Return an async iterable or observable for streaming
+
+2. **Update `copilot.chat` tool registration**:
+   - Process stream chunks as they arrive
+   - Emit incremental MCP tool outputs using `context.caller.createProgress()` 
+   - Handle final metadata reconciliation
+
+3. **Maintain backward compatibility**:
+   - Support both streaming and non-streaming responses
+   - Handle older bridge versions gracefully
+
+Implementation approach:
+```typescript
+// In BridgeClient.chat method
+async chat(payload: ChatPayload, signal?: AbortSignal): Promise<AsyncIterable<ChatChunk>> {
+  const response = await fetch(new URL('/chat', this.baseUrl), {
+    method: 'POST',
+    headers: this.buildHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(payload),
+    signal
+  });
+
+  // Process chunked response
+  return processChunkedResponse(response);
+}
+
+// In copilot.chat tool registration
+async ({ prompt, model }, context) => {
+  const stream = await copilotBridge.chat({
+    prompt,
+    id: model?.id,
+    vendor: model?.vendor,
+    family: model?.family,
+    version: model?.version
+  }, controller.signal);
+
+  // Emit incremental outputs
+  let fullOutput = '';
+  for await (const chunk of stream) {
+    if (chunk.type === 'chunk') {
+      fullOutput += chunk.content;
+      context.caller.createProgress({
+        content: [{ type: 'text', text: chunk.content }]
+      });
+    } else if (chunk.type === 'final') {
+      // Handle final metadata
+    }
+  }
+
+  // Return final result
+  return {
+    content: [{ type: 'text', text: fullOutput }],
+    structuredContent: { status: 'ok', output: fullOutput }
+  };
+}
+```
+
+### 5. Testing Strategy
+
+#### Testing Plan:
+
+1. **Unit Tests**:
+   - Test chunk parsing logic in both bridge and sidecar
+   - Mock `vscode.lm` streaming responses in bridge extension
+   - Mock chunked HTTP responses in sidecar tests
+
+2. **Integration Tests**:
+   - End-to-end streaming from bridge to sidecar
+   - Cancellation propagation during streaming
+   - Error handling during streaming
+
+3. **Performance Tests**:
+   - Measure latency of first chunk delivery
+   - Test with large responses
+   - Validate concurrency limits still work with streaming
+
+4. **Backward Compatibility Tests**:
+   - Ensure non-streaming responses still work
+   - Test with older bridge versions
+
+### 6. Risk Mitigations
+
+#### Technical Risks:
+1. **Streaming Complexity**: 
+   - Mitigation: Implement incremental changes with feature flags
+   - Start with bridge extension, then update sidecar
+
+2. **Error Handling**: 
+   - Mitigation: Preserve existing error handling while adding streaming
+   - Ensure errors at any point in stream are properly propagated
+
+3. **Cancellations**: 
+   - Mitigation: Maintain existing cancellation token propagation
+   - Test cancellation at various points in stream
+
+4. **Memory Usage**: 
+   - Mitigation: Process chunks individually rather than buffering
+   - Monitor memory usage during testing
+
+#### Compatibility Risks:
+1. **Older Sidecar Versions**: 
+   - Mitigation: Ensure bridge can handle both streaming and non-streaming requests
+   - Add version negotiation mechanism if needed
+
+2. **VS Code API Changes**: 
+   - Mitigation: Wrap VS Code API calls in compatibility layer
+   - Monitor for breaking changes in Language Model API
+
+### Implementation Steps Summary:
+
+1. **Phase 1**: Modify bridge extension to support streaming responses
+   - Update `handleChat` method to use chunked transfer encoding
+   - Implement streaming response format
+   - Preserve all existing functionality (auth, limits, cancellation)
+
+2. **Phase 2**: Update sidecar to process streaming responses
+   - Modify `BridgeClient` to handle chunked HTTP responses
+   - Update `copilot.chat` tool to emit incremental outputs
+   - Maintain backward compatibility
+
+3. **Phase 3**: Testing and refinement
+   - Implement unit tests for streaming functionality
+   - Conduct integration testing
+   - Validate error handling and cancellation
+   - Performance testing
+
+4. **Phase 4**: Documentation and examples
+   - Update documentation with streaming examples
+   - Provide migration guide for existing users
+
+This approach ensures we maintain all existing functionality while adding streaming capabilities in a controlled, tested manner.

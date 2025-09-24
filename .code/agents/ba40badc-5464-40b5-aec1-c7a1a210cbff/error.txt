@@ -1,0 +1,1 @@
+Git is required for non-read-only agents: Not in a git repository

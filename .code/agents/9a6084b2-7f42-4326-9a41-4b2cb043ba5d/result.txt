@@ -1,0 +1,204 @@
+I'll develop a detailed implementation plan for the Copilot Bridge project. Let me first review the key files to understand the current state and requirements.
+
+Now let me review the architecture document to understand the current high-level plan:
+
+Let me examine the current implementation scaffolding in the extension and sidecar:
+
+Now let me check the MCP sidecar implementation:
+
+Let me also check the package.json files to understand the dependencies and structure:
+
+Let me correct the path:
+
+Let me also check the README and AGENTS.md to understand more about the project:
+
+Now let me check the tsconfig files to understand the build setup:
+
+Let me create a detailed implementation plan based on my analysis of the project requirements and current implementation. I'll use the todo_write tool to organize the tasks:
+
+Let me analyze the current implementation status and identify gaps vs. requirements:
+
+Let me review the PRD requirements for both components:
+
+Now let me review the architecture plan and milestones:
+
+Let me create a detailed implementation plan with sequencing, dependencies, and milestones:
+
+Now let me identify the testing strategy and coverage requirements:
+
+Finally, let me document the recommended tooling updates and developer experience improvements:
+
+# Copilot Bridge Implementation Plan
+
+## Current Implementation Status
+
+### VS Code Bridge Extension (`packages/bridge-extension`)
+- [x] Extension activation and configuration handling
+- [x] HTTP server with local binding (127.0.0.1)
+- [x] Route handling for `/models` and `/chat`
+- [x] Configuration options for port, auth token, auto-start
+- [x] Request body size limits (32 KiB default)
+- [x] Concurrency limiting (max 4 concurrent requests)
+- [x] Authorization with optional bearer token
+- [ ] **Missing**: Actual implementation of `/chat` endpoint with `vscode.lm` API
+- [ ] **Missing**: Streaming support for chat responses
+- [ ] **Missing**: Proper cancellation token handling
+- [ ] **Missing**: Graceful shutdown with connection closing
+- [ ] **Missing**: Comprehensive logging
+
+### MCP Sidecar (`packages/copilot-sidecar`)
+- [x] MCP server with stdio transport
+- [x] Tool definitions for `copilot.chat` and `copilot.listModels`
+- [x] HTTP client for bridge communication
+- [x] Configuration via environment variables
+- [x] Cancellation signal propagation
+- [ ] **Missing**: Streaming support for chat responses
+- [ ] **Missing**: Proper error handling without crashing
+- [ ] **Missing**: Comprehensive logging
+
+## Detailed Implementation Plan
+
+### Phase 1: Core Functionality Implementation
+
+#### Milestone M1: VS Code Bridge MVP
+1. **Implement `/chat` endpoint**:
+   - Parse request body for prompt and model selection parameters
+   - Use `vscode.lm.sendChatRequest()` with proper parameters
+   - Handle model selection using `vscode.lm.selectModels()` with filters
+   - Return JSON response with completion result
+
+2. **Implement `/models` endpoint**:
+   - Enhance model discovery with proper filtering
+   - Return complete model metadata (id, vendor, family, version, maxInputTokens)
+
+3. **Add comprehensive logging**:
+   - Implement different log levels (error, warn, info, debug)
+   - Log request lifecycle (start, completion, errors)
+   - Log configuration changes and server start/stop events
+
+#### Milestone M2: MCP Sidecar MVP
+1. **Complete tool implementations**:
+   - Finalize `copilot.listModels` with proper filtering
+   - Implement `copilot.chat` with full parameter support
+   - Return proper MCP response formats
+
+2. **Add error handling**:
+   - Catch and format bridge errors as MCP text responses
+   - Prevent sidecar crashes on bridge failures
+   - Add timeout handling for bridge requests
+
+### Phase 2: Advanced Features
+
+#### Milestone M3: Streaming, Cancellation, Security
+1. **Implement streaming support**:
+   - VS Code extension: Use `vscode.lm.sendChatRequest()` streaming capability
+   - MCP sidecar: Forward chunks as incremental tool results
+   - Handle partial responses properly in both components
+
+2. **Enhance cancellation handling**:
+   - VS Code extension: Tie HTTP connection close to `CancellationTokenSource`
+   - MCP sidecar: Propagate cancellation signals through AbortController
+   - Verify interruption of Copilot generation on client cancellation
+
+3. **Security enhancements**:
+   - Verify localhost-only binding cannot be bypassed
+   - Test bearer token authentication thoroughly
+   - Add request validation and sanitization
+
+#### Milestone M4: DX Polish and Testing
+1. **Developer experience improvements**:
+   - Add comprehensive logging with configurable levels
+   - Implement graceful shutdown procedures
+   - Add health check endpoint
+
+2. **Documentation and samples**:
+   - Create usage documentation for both components
+   - Provide CLI integration examples
+   - Document configuration options
+
+3. **Testing implementation**:
+   - Add unit tests for both components
+   - Implement integration tests with Codex CLI
+   - Add stress tests for concurrency limits
+   - Test error scenarios and edge cases
+
+## Dependencies and Sequencing
+
+### Critical Path
+1. **VS Code Extension Core** → **MCP Sidecar Basic Tools** → **Streaming Implementation** → **Full Integration Testing**
+2. **Model Discovery** and **Chat Completion** can be developed in parallel
+3. **Cancellation** and **Streaming** features are interdependent and should be implemented together
+
+### External Dependencies
+1. **VS Code LM API** - Requires GitHub Copilot extension for actual functionality
+2. **MCP SDK** - Provides the foundation for the sidecar implementation
+3. **Codex CLI** - Required for end-to-end testing and integration verification
+
+## Testing Strategy
+
+### Unit Testing
+1. **VS Code Extension**:
+   - Mock `vscode.lm` API for testing request handling
+   - Test authorization logic with various header configurations
+   - Validate request body parsing and size limits
+   - Test concurrency limiting under various loads
+
+2. **MCP Sidecar**:
+   - Mock HTTP responses from bridge for tool testing
+   - Test parameter validation with zod schemas
+   - Verify error handling and response formatting
+   - Test cancellation signal propagation
+
+### Integration Testing
+1. **End-to-End Flows**:
+   - Test model discovery from CLI through sidecar to extension
+   - Verify chat completion flows with various model parameters
+   - Test streaming responses with large completions
+   - Validate cancellation behavior
+
+2. **Security Testing**:
+   - Verify localhost-only binding enforcement
+   - Test authentication with valid/invalid tokens
+   - Validate request size limits
+
+### Performance Testing
+1. **Load Testing**:
+   - Test concurrency limits under sustained load
+   - Measure response times under various conditions
+   - Test back-pressure handling with queue overflow scenarios
+
+## Recommended Tooling Updates
+
+### Development Tooling
+1. **Add linting**:
+   - Configure ESLint with TypeScript support
+   - Add Prettier for code formatting consistency
+   - Integrate with CI pipeline
+
+2. **Testing Framework**:
+   - Add Vitest for unit testing (fast, Vite-native)
+   - Add test coverage reporting
+   - Set up CI pipeline with automated testing
+
+3. **Build Improvements**:
+   - Consider esbuild or Vite for faster builds
+   - Add source map support for debugging
+   - Implement watch mode for development
+
+### Developer Experience
+1. **Documentation**:
+   - Add JSDoc comments to all public APIs
+   - Create comprehensive README with setup instructions
+   - Document troubleshooting common issues
+
+2. **Debugging Support**:
+   - Add debug logging option
+   - Provide VS Code launch configurations for debugging both components
+   - Create example configurations for various scenarios
+
+3. **Release Process**:
+   - Implement semantic versioning
+   - Add changelog generation
+   - Consider automated publishing workflows
+
+This plan provides a clear path to completing the Copilot Bridge project with proper sequencing of work, identification of dependencies, and a comprehensive approach to testing and developer experience.
