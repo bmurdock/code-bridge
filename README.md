@@ -18,6 +18,27 @@ This repository contains a two-part implementation that exposes GitHub Copilot m
 6. Run the MCP sidecar via `npx copilot-mcp` and register it with Codex CLI (see `docs/integration-guide.md`).
 7. Review contributor expectations in [`AGENTS.md`](AGENTS.md) before opening PRs.
 
+## Configuration & Status
+
+- `lmBridge.host` – Network interface the bridge binds to (defaults to `127.0.0.1`; keep loopback for security).
+- `lmBridge.port` – HTTP port exposed by the bridge.
+- `lmBridge.authToken` – Optional bearer token validated on every request.
+- `lmBridge.autoStart` – Automatically start the bridge when the extension activates and toggle running state when the setting changes.
+- `lmBridge.logLevel`, `lmBridge.maxConcurrent`, `lmBridge.maxRequestBody` – Diagnostics and throughput tuning knobs.
+
+The extension surfaces its lifecycle in the VS Code status bar (left side) with a `Copilot Bridge` entry that displays the active endpoint and opens an action menu for common operations.
+
+### Commands
+
+- `Copilot LM Bridge: Show Actions` – Open a quick menu to start, stop, restart, or configure the bridge.
+- `Copilot LM Bridge: View Logs` – Show the bridge output channel for diagnostics.
+- `Copilot LM Bridge: Check Health` – Call the `/healthz` endpoint to confirm the server is responsive.
+- `Copilot LM Bridge: Start Server` – Launch the HTTP bridge manually.
+- `Copilot LM Bridge: Stop Server` – Shut down the bridge (auto-start may relaunch it on future config changes).
+- `Copilot LM Bridge: Restart Server` – Restart the bridge with current settings.
+
+The log channel emits JSON lines with timestamps and event names (for example, `bridge.start.success`, `command.stop.invoke`) so recent user actions can be inspected or shared when reporting issues.
+
 ## Ollama-compatible Proxy (packages/ollama-proxy)
 
 The Ollama proxy is a standalone service that looks like an Ollama server to clients, but forwards requests to the VS Code Language Model API through the bridge-extension.

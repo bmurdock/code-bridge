@@ -17,6 +17,38 @@
     "node_modules/@vscode/l10n/**/*"
   ],
   "contributes": {
+    "commands": [
+      {
+        "command": "lmBridge.restart",
+        "title": "Copilot LM Bridge: Restart Server",
+        "category": "Copilot Bridge"
+      },
+      {
+        "command": "lmBridge.openLogs",
+        "title": "Copilot LM Bridge: View Logs",
+        "category": "Copilot Bridge"
+      },
+      {
+        "command": "lmBridge.checkHealth",
+        "title": "Copilot LM Bridge: Check Health",
+        "category": "Copilot Bridge"
+      },
+      {
+        "command": "lmBridge.start",
+        "title": "Copilot LM Bridge: Start Server",
+        "category": "Copilot Bridge"
+      },
+      {
+        "command": "lmBridge.stop",
+        "title": "Copilot LM Bridge: Stop Server",
+        "category": "Copilot Bridge"
+      },
+      {
+        "command": "lmBridge.showActions",
+        "title": "Copilot LM Bridge: Show Actions",
+        "category": "Copilot Bridge"
+      }
+    ],
     "configuration": {
       "title": "Copilot LM Bridge",
       "properties": {
@@ -24,6 +56,11 @@
           "type": "number",
           "default": 39217,
           "description": "Port used for the local HTTP bridge."
+        },
+        "lmBridge.host": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "Host address the bridge should bind to."
         },
         "lmBridge.authToken": {
           "type": ["string", "null"],

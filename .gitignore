@@ -1,0 +1,291 @@
+# ============================================
+# Node.js Dependencies
+# ============================================
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+pnpm-debug.log*
+
+# Optional: Uncomment if you want to ignore lock files
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# ============================================
+# TypeScript Build Outputs
+# ============================================
+dist/
+**/dist/
+build/
+**/build/
+*.tsbuildinfo
+*.tsbuildinfo.*
+
+# Compiled JavaScript from TypeScript
+*.js.map
+*.d.ts.map
+
+# ============================================
+# VS Code Extension Specific
+# ============================================
+# Packaged extension files
+*.vsix
+
+# Extension build artifacts
+out/
+**/out/
+
+# ============================================
+# IDE and Editor Files
+# ============================================
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
+*.code-workspace
+
+# JetBrains IDEs (WebStorm, IntelliJ, etc.)
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Vim
+*.swp
+*.swo
+*~
+.*.swp
+.*.swo
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# ============================================
+# Environment Variables and Secrets
+# ============================================
+.env
+.env.*
+!.env.example
+!.env.template
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# API keys and tokens
+*.key
+*.pem
+secrets/
+secrets.json
+
+# ============================================
+# Test Coverage and Reports
+# ============================================
+coverage/
+**/coverage/
+.nyc_output/
+*.lcov
+.coverage
+htmlcov/
+test-results/
+junit.xml
+*.test.log
+
+# Vitest
+.vitest/
+
+# ============================================
+# Logs
+# ============================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+pnpm-debug.log*
+
+# Runtime logs
+*.pid
+*.seed
+*.pid.lock
+
+# ============================================
+# OS-Specific Files
+# ============================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# ============================================
+# Temporary Files
+# ============================================
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.backup
+*.cache
+
+# ============================================
+# Dependency Directories
+# ============================================
+jspm_packages/
+bower_components/
+
+# ============================================
+# Optional npm cache directory
+# ============================================
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional stylelint cache
+.stylelintcache
+
+
+# ============================================
+# Microbundle cache
+# ============================================
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# ============================================
+# Parcel cache
+# ============================================
+.cache
+.parcel-cache
+
+# ============================================
+# Next.js
+# ============================================
+.next/
+
+
+# ============================================
+# Nuxt.js
+# ============================================
+.nuxt
+
+
+# ============================================
+# Gatsby
+# ============================================
+.cache/
+public
+
+# ============================================
+# Serverless
+# ============================================
+.serverless/
+
+# ============================================
+# FuseBox
+# ============================================
+.fusebox/
+
+# ============================================
+# DynamoDB Local
+# ============================================
+.dynamodb/
+
+# ============================================
+# TernJS
+# ============================================
+.tern-port
+
+# ============================================
+# Stores VSCode versions used for testing
+# ============================================
+.vscode-test/
+
+# ============================================
+# Yarn
+# ============================================
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+
+# ============================================
+# Project-Specific Exclusions
+# ============================================
+# Keep .augment directory and rules (important project guidelines)
+!.augment/
+!.augment/**
+
+# Keep documentation
+!docs/
+!docs/**
+
+# Keep configuration files
+!tsconfig*.json
+!package.json
+!*.config.js
+!*.config.ts
+!*.config.mjs
+
+# Keep source code
+!src/
+!src/**
+!packages/*/src/
+!packages/*/src/**
+
+# ============================================
+# Debug and Profiling
+# ============================================
+*.cpuprofile
+*.heapsnapshot
+*.heapprofile
+
+# ============================================
+# Miscellaneous
+# ============================================
+.turbo
+.vercel
+.netlify
+# Local AI/dev tool artifacts
+.code/
+.claude/
+
+

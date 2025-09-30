@@ -4,7 +4,8 @@
 
 1. **VS Code LM Bridge Extension**
  - Provide HTTP interface around `vscode.lm` API: GET `/models`, POST `/chat`.
- - Configuration surface via `lmBridge.port`, `lmBridge.authToken`, `lmBridge.autoStart`.
+- Configuration surface via `lmBridge.host`, `lmBridge.port`, `lmBridge.authToken`, `lmBridge.autoStart` (setting flips start/stop automatically).
+ - Status bar item mirrors bridge lifecycle, showing the active endpoint and opening an action picker for start/stop/restart/configuration shortcuts, log access, and the built-in health check; command invocations emit structured JSON log entries.
  - Local-only binding with optional bearer auth.
  - Concurrency gating and request size limits.
   - Log channel with level support. *(basic logging is in place; rotation/levels still TODO)*
