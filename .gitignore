@@ -166,8 +166,6 @@ temp/
 # ============================================
 # Dependency Directories
 # ============================================
-jspm_packages/
-bower_components/
 
 # ============================================
 # Optional npm cache directory
@@ -178,22 +176,9 @@ bower_components/
 .eslintcache
 
 # Optional stylelint cache
-.stylelintcache
 
 
-# ============================================
-# Microbundle cache
-# ============================================
-.rpt2_cache/
-.rts2_cache_cjs/
-.rts2_cache_es/
-.rts2_cache_umd/
 
-# ============================================
-# Parcel cache
-# ============================================
-.cache
-.parcel-cache
 
 
 
@@ -202,14 +187,6 @@ bower_components/
 # ============================================
 .vscode-test/
 
-# ============================================
-# Yarn
-# ============================================
-.yarn/cache
-.yarn/unplugged
-.yarn/build-state.yml
-.yarn/install-state.gz
-.pnp.*
 
 # ============================================
 # Project-Specific Exclusions
