@@ -1,4 +1,5 @@
 import * as http from 'http';
+import { AddressInfo } from 'net';
 import * as vscode from 'vscode';
 import {
   ChatRequest,
@@ -20,6 +21,7 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
 };
 
 export interface BridgeServerOptions {
+  host: string;
   port: number;
   authToken?: string;
   autoStart: boolean;
@@ -72,8 +74,10 @@ export class BridgeServer {
         }
       });
 
-      server.listen(this.options.port, '127.0.0.1', () => {
-        this.log('info', `Bridge listening on http://127.0.0.1:${this.options.port}`);
+      server.listen(this.options.port, this.options.host, () => {
+        const address = server.address() as AddressInfo | null;
+        const { host, port } = this.resolveAddress(address);
+        this.log('info', `Bridge listening on http://${host}:${port}`);
         this.server = server;
         resolve();
       });
@@ -111,12 +115,27 @@ export class BridgeServer {
   }
 
   async applyConfig(options: BridgeServerOptions): Promise<void> {
-    const requiresRestart = options.port !== this.options.port || options.authToken !== this.options.authToken;
+    const requiresRestart =
+      options.port !== this.options.port ||
+      options.host !== this.options.host ||
+      options.authToken !== this.options.authToken;
     this.options = options;
 
     if (requiresRestart) {
       await this.restart(options);
     }
+  }
+
+  isRunning(): boolean {
+    return Boolean(this.server);
+  }
+
+  getAddress(): { host: string; port: number } | undefined {
+    if (!this.server) {
+      return undefined;
+    }
+    const address = this.server.address() as AddressInfo | null;
+    return this.resolveAddress(address);
   }
 
   private log(level: LogLevel, message: string): void {
@@ -208,14 +227,33 @@ export class BridgeServer {
 
   private handleHealth(res: http.ServerResponse) {
     res.setHeader('Content-Type', 'application/json');
+    const address = this.getAddress();
     res.end(
       JSON.stringify({
         status: 'ok',
-        port: this.options.port,
+        host: address?.host ?? this.options.host,
+        port: address?.port ?? this.options.port,
         activeRequests: this.activeRequests,
         queuedRequests: this.requestQueue.length
       })
     );
+  }
+
+  private resolveAddress(address: AddressInfo | null): { host: string; port: number } {
+    if (!address) {
+      return { host: this.options.host, port: this.options.port };
+    }
+
+    let host = address.address;
+    if (host === '::' || host === '0.0.0.0') {
+      host = this.options.host;
+    } else if (host === '::1') {
+      host = '127.0.0.1';
+    } else if (host.startsWith('::ffff:')) {
+      host = host.slice(7);
+    }
+
+    return { host, port: address.port };
   }
 
   private authorize(req: http.IncomingMessage): boolean {

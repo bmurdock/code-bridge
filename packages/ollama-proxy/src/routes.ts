@@ -1,110 +1,210 @@
+import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { BridgeClient, type BridgeModel } from './bridgeClient.js';
-import {
-  mapOllamaOptionsToBridge,
-  foldSystemIntoPrompt,
-  mapOllamaChatToBridgeMessages,
-  type OllamaGenerateRequest,
-  type OllamaChatRequest
-} from './mapping.js';
-import { pipeBridgeSseToOllamaNdjson } from './sseToNdjson.js';
+import { BridgeClient } from './bridgeClient.js';
+import { parseOpenAiChatCompletionRequest } from './mapping.js';
+import { pipeBridgeSseToOpenAi } from './sseToOpenAi.js';
 import { selectModelId } from './modelSelect.js';
 
-type FlushableReply = { flush?: () => void };
+interface ChatRequestBody {
+  Body: unknown;
+}
 
-function writeNdjson(reply: FastifyReply) {
-  return (line: string) => {
-    reply.raw.write(line + '\n');
-  };
+const SYSTEM_FINGERPRINT = 'bridge-proxy';
+
+export function registerRoutes(app: FastifyInstance, bridge: BridgeClient) {
+  app.get('/v1/models', async (_req, reply) => {
+    try {
+      const models = await bridge.listModels();
+      const now = Math.floor(Date.now() / 1000);
+      return reply.send({
+        object: 'list',
+        data: models.map((model) => ({
+          id: model.id,
+          object: 'model',
+          created: now,
+          owned_by: model.vendor,
+          permission: [],
+          metadata: {
+            family: model.family ?? null,
+            version: model.version ?? null,
+            max_input_tokens: model.maxInputTokens ?? null
+          }
+        })),
+        has_more: false
+      });
+    } catch (error) {
+      return sendProxyError(reply, 502, `Failed to list models: ${stringifyError(error)}`);
+    }
+  });
+
+  app.post('/v1/chat/completions', async (req: FastifyRequest<ChatRequestBody>, reply) => {
+    const parseResult = parseOpenAiChatCompletionRequest(req.body);
+    if (!parseResult.ok) {
+      return sendProxyError(reply, 400, parseResult.error.message, parseResult.error.code);
+    }
+
+    const { model, stream, chatPayload } = parseResult.value;
+
+    let selectorId: string | undefined;
+    let usedId: string | undefined;
+
+    try {
+      const modelSelection = await selectModelId(bridge, model);
+      selectorId = modelSelection.id;
+      usedId = modelSelection.usedId;
+      if (!usedId) {
+        return sendProxyError(reply, 404, `Model '${model}' not found`, 'model_not_found');
+      }
+    } catch (error) {
+      return sendProxyError(reply, 502, `Model lookup failed: ${stringifyError(error)}`);
+    }
+
+    const payload = {
+      ...chatPayload,
+      model: selectorId ? { id: selectorId } : undefined
+    };
+
+    const effectiveModelId = usedId ?? model;
+
+    if (stream) {
+      return handleStreamingCompletion(reply, bridge, payload, effectiveModelId);
+    }
+
+    return handleJsonCompletion(reply, bridge, payload, effectiveModelId);
+  });
 }
 
 function flushIfSupported(reply: FastifyReply) {
-  const raw = reply.raw as FlushableReply;
+  const raw = reply.raw as { flush?: () => void };
   raw.flush?.();
 }
 
-export function registerRoutes(app: FastifyInstance, bridge: BridgeClient) {
-  // Tags listing
-  app.get('/api/tags', async (_req, reply) => {
-    const models = await bridge.listModels();
-    const payload = {
-      models: models.map((model: BridgeModel) => ({
-        name: model.id,
-        modified_at: null,
-        size: null,
-        digest: null,
-        details: {
-          format: null,
-          family: model.family ?? null,
-          families: null,
-          parameter_size: null,
-          quantization_level: null
+async function handleStreamingCompletion(
+  reply: FastifyReply,
+  bridge: BridgeClient,
+  payload: Parameters<BridgeClient['chatStream']>[0],
+  modelId: string
+) {
+  reply.header('Content-Type', 'text/event-stream');
+  reply.header('Cache-Control', 'no-cache');
+  reply.header('Connection', 'keep-alive');
+
+  let bridgeResponse: Response;
+  try {
+    bridgeResponse = await bridge.chatStream(payload);
+  } catch (error) {
+    return sendProxyError(reply, 502, `Bridge streaming request failed: ${stringifyError(error)}`);
+  }
+
+  const writeData = (data: string) => {
+    reply.raw.write(`data: ${data}\n\n`);
+    flushIfSupported(reply);
+  };
+
+  try {
+    await pipeBridgeSseToOpenAi(bridgeResponse, modelId, writeData);
+  } catch (error) {
+    writeData(
+      JSON.stringify({
+        error: {
+          message: `Failed to translate bridge stream: ${stringifyError(error)}`,
+          type: 'proxy_error',
+          code: null,
+          param: null
         }
-      }))
-    };
-    return reply.send(payload);
+      })
+    );
+    writeData('[DONE]');
+  } finally {
+    reply.raw.end();
+  }
+}
+
+async function handleJsonCompletion(
+  reply: FastifyReply,
+  bridge: BridgeClient,
+  payload: Parameters<BridgeClient['chatJson']>[0],
+  modelId: string
+) {
+  let result: Awaited<ReturnType<BridgeClient['chatJson']>>;
+  try {
+    result = await bridge.chatJson(payload);
+  } catch (error) {
+    return sendProxyError(reply, 502, `Bridge request failed: ${stringifyError(error)}`);
+  }
+
+  if (result.status !== 'ok') {
+    return sendProxyError(reply, 502, 'Bridge returned an unexpected response');
+  }
+
+  const created = Math.floor(Date.now() / 1000);
+  const completionId = formatCompletionId(randomUUID());
+  const text = result.output ?? '';
+  const completionTokens = estimateTokenCount(text);
+  const promptTokens = 0;
+
+  return reply.send({
+    id: completionId,
+    object: 'chat.completion',
+    created,
+    model: modelId,
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: text,
+          refusal: null,
+          annotations: []
+        },
+        logprobs: null,
+        finish_reason: 'stop'
+      }
+    ],
+    usage: {
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: promptTokens + completionTokens,
+      prompt_tokens_details: {
+        cached_tokens: 0,
+        audio_tokens: 0
+      },
+      completion_tokens_details: {
+        reasoning_tokens: 0,
+        audio_tokens: 0,
+        accepted_prediction_tokens: 0,
+        rejected_prediction_tokens: 0
+      }
+    },
+    service_tier: 'default',
+    system_fingerprint: SYSTEM_FINGERPRINT
   });
+}
 
-  // Generate
-  app.post('/api/generate', async (req: FastifyRequest<{ Body: OllamaGenerateRequest }>, reply) => {
-    const body = req.body || ({} as OllamaGenerateRequest);
-    const stream = body.stream !== false;
-    const { id: selectorId, usedId } = await selectModelId(bridge, body.model);
-    const prompt = foldSystemIntoPrompt(body.system, body.prompt);
-
-    const payload = {
-      prompt,
-      model: selectorId ? { id: selectorId } : undefined,
-      options: mapOllamaOptionsToBridge(body.options)
-    };
-
-    if (stream) {
-      reply.header('Content-Type', 'application/x-ndjson');
-      // flush headers
-      flushIfSupported(reply);
-      const res = await bridge.chatStream(payload);
-      await pipeBridgeSseToOllamaNdjson(res, 'generate', usedId || body.model, writeNdjson(reply));
-      return reply.raw.end();
+function sendProxyError(reply: FastifyReply, statusCode: number, message: string, code = 'proxy_error') {
+  reply.status(statusCode);
+  return reply.send({
+    error: {
+      message,
+      type: code,
+      param: null,
+      code
     }
-
-    const out = await bridge.chatJson(payload);
-    const modelId = usedId || body.model;
-    return reply.send({
-      model: modelId,
-      created_at: new Date().toISOString(),
-      response: out.output ?? '',
-      done: true
-    });
   });
+}
 
-  // Chat
-  app.post('/api/chat', async (req: FastifyRequest<{ Body: OllamaChatRequest }>, reply) => {
-    const body = req.body || ({} as OllamaChatRequest);
-    const stream = body.stream !== false;
-    const { id: selectorId, usedId } = await selectModelId(bridge, body.model);
+function stringifyError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return typeof error === 'string' ? error : 'Unknown error';
+}
 
-    const messages = mapOllamaChatToBridgeMessages(body.messages || []);
-    const payload = {
-      messages,
-      model: selectorId ? { id: selectorId } : undefined,
-      options: mapOllamaOptionsToBridge(body.options)
-    };
+function formatCompletionId(id: string): string {
+  return `chatcmpl-${id.replace(/-/g, '')}`;
+}
 
-    if (stream) {
-      reply.header('Content-Type', 'application/x-ndjson');
-      flushIfSupported(reply);
-      const res = await bridge.chatStream(payload);
-      await pipeBridgeSseToOllamaNdjson(res, 'chat', usedId || body.model, writeNdjson(reply));
-      return reply.raw.end();
-    }
-
-    const out = await bridge.chatJson(payload);
-    const modelId = usedId || body.model;
-    return reply.send({
-      model: modelId,
-      created_at: new Date().toISOString(),
-      message: { role: 'assistant', content: out.output ?? '' },
-      done: true
-    });
-  });
+function estimateTokenCount(text: string): number {
+  if (!text) return 0;
+  return Math.max(1, Math.ceil(text.length / 4));
 }

@@ -28,6 +28,7 @@ describe('BridgeServer logging', () => {
   it('honors configured log level threshold', () => {
     const server = new BridgeServer(
       {
+        host: '127.0.0.1',
         port: 1,
         authToken: undefined,
         autoStart: false,
@@ -48,6 +49,7 @@ describe('BridgeServer logging', () => {
   it('updates log threshold when configuration changes', async () => {
     const server = new BridgeServer(
       {
+        host: '127.0.0.1',
         port: 1,
         authToken: undefined,
         autoStart: false,
@@ -59,6 +61,7 @@ describe('BridgeServer logging', () => {
     );
 
     await server.applyConfig({
+      host: '127.0.0.1',
       port: 1,
       authToken: undefined,
       autoStart: false,
@@ -75,6 +78,7 @@ describe('BridgeServer logging', () => {
   it('emits structured JSON payloads via log events', () => {
     const server = new BridgeServer(
       {
+        host: '127.0.0.1',
         port: 1,
         authToken: undefined,
         autoStart: false,
@@ -160,6 +164,7 @@ describe('BridgeServer integration', () => {
     mockedLm.selectChatModels.mockResolvedValue([mockModel as vscode.LanguageModelChat]);
 
     const options = {
+      host: '127.0.0.1',
       port: 0,
       authToken: undefined,
       autoStart: false,
@@ -222,6 +227,7 @@ describe('BridgeServer integration', () => {
     mockedLm.selectChatModels.mockResolvedValue([mockModel as vscode.LanguageModelChat]);
 
     const options = {
+      host: '127.0.0.1',
       port: 0,
       authToken: undefined,
       autoStart: false,
